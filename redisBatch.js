@@ -1,3 +1,10 @@
+// 1. node exec.js old_connection new_connection [Redis Instances]
+// 1-1. node redisBatch.js '["172.31.9.3:6379", "172.31.9.2:6379"]' '["172.31.9.2:22121", "172.31.9.3:22121"]' '["172.31.9.2:22124","172.31.9.3:22124"]' str:vip:relief_coin y
+// 2. Scan the keys from Redis Instances
+// 3. Save Keys into the set to filter the duplicate keys.
+// 4. Fetch the data from old Redis Proxy.
+// 5. Save the data into the new Redis Proxy.
+// 6. Print the total getting keys and inserttng key to console.
 
 /*
  * RedisSocket.js
@@ -12,6 +19,7 @@ var _ = require('lodash');
 var redis = require('redis');
 var async = require('async');
 var Promise = require('bluebird');
+var fs = require('fs');
 
 var RedisSocket = function RedisSocket(startupConfig) {
   events.EventEmitter.call(this);
@@ -288,7 +296,6 @@ var insertData = function(redis, data, log, callback){
 
 var main = function(){
   return new Promise(function(resolve, reject){
-    var fs = require('fs');
     fs.readFile(__dirname + '/redis.config', function (err, content){
       if(err) return reject(err);
       return resolve(content.toString());
@@ -317,6 +324,15 @@ var main = function(){
     };
     return _.assign(redis_data, {
       insert: !_.isEmpty(redis_data.to_proxies)
+    });
+  }).then(function(data){
+    return Promise.promisify(fs.stat)(data.output).then(function(){
+      return Promise.promisify(fs.unlink)(data.output).then(function(){
+        return data;
+      });
+    }).catch(function(err){
+      console.log('delete output file failed');
+      return data;
     });
   }).then(function(data){
     return Promise.all(_.map(_.flatten(_.values(data.redises)), function(redis){
@@ -379,11 +395,34 @@ var main = function(){
         return data;
       });
   }).then(function(data){
-    console.log('> WRITE TO FILE:' + data.output);
-    var values = _.sortBy(data.values, ['key']);
-    var fs = require('fs');
-    return Promise.each(values, function(value){
-      return Promise.promisify(fs.writeFile)(data.output, JSON.stringify(values));
+    return new Promise(function(resolve){
+      console.log('> WRITE TO FILE:' + data.output);
+      var values = _.sortBy(data.values, ['key']);
+      var wstream = fs.createWriteStream(data.output);
+      values.map(function(value){
+        var content = 'key:' + value.key + '\n' +
+                      'type:' + value.type + '\n' +
+                      'ttl:' + value.ttl + '\n';
+        if (_.isArrayLikeObject(value.value)){
+          value.value.map(function(ele){
+            content += ele + '\n';
+          });
+        } else if(_.isObjectLike(value.value)){
+          _.toPairs(value.value).map(function(p){
+            content += p + '\n';
+          });
+        } else if(_.isString(value.value)){
+          content += value.value+ '\n';
+        } else {
+          content += 'unknown type\n';
+        }
+        content += '========================================================' + '\n';
+        wstream.write(content);
+      });
+      wstream.end();
+      wstream.on('finish', function(){
+        return resolve(data);
+      });
     });
   }).then(function(data){
     console.log('> BATCH FINISH');
