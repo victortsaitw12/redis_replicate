@@ -347,7 +347,7 @@ var main = function(config){
       return data;
     }).catch(function(err){
       console.log('delete output file failed' + err);
-      throw err;
+      return data;
     });
   }).then(function(data){
     return Promise.all(_.map(_.flatten(_.values(data.redises)), function(redis){
