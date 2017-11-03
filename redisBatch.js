@@ -205,7 +205,7 @@ var fetchData = function(redis, keys, log, callback){
             });
         }],
         function(err, result){
-          if(err) return callback(err, result);
+          if(err) return callback(null, {'key': key, 'err': err});
           callback(null, result);
         });
       },
@@ -323,19 +323,31 @@ var main = function(config){
       },
       pattern: redis.pattern,
       exact_keys: redis.exact_keys,
-      output: redis.output
+      output: redis.output,
+      error_file: redis.error_output
     };
     return _.assign(redis_data, {
       insert: !_.isEmpty(redis_data.to_proxies)
     });
   }).then(function(data){
-    return Promise.promisify(fs.stat)(data.output).then(function(){
-      return Promise.promisify(fs.unlink)(data.output).then(function(){
-        return data;
-      });
-    }).catch(function(err){
-      console.log('delete output file failed');
+    var stat = Promise.promisify(fs.stat);
+    var unlink = Promise.promisify(fs.unlink);
+    var output = data.output;
+    console.log(output);
+    var error_file = data.error_file;
+    console.log(error_file);
+    return Promise.all([
+        stat(output).then(function(data){
+          return unlink(output);
+        }),
+        stat(error_file).then(function(data){
+          return unlink(error_file);
+        })
+    ]).then(function(){
       return data;
+    }).catch(function(err){
+      console.log('delete output file failed' + err);
+      throw err;
     });
   }).then(function(data){
     return Promise.all(_.map(_.flatten(_.values(data.redises)), function(redis){
@@ -376,6 +388,31 @@ var main = function(config){
           console.log);
       }).then(function(result){
         var values = _.flatten(result);
+        var errs = _.filter(values, function(value){
+          return !_.isUndefined(value.err);
+        });
+        if (!_.isEmpty(errs)){
+          return new Promise(function(resolve){
+            var wstream = fs.createWriteStream(data.error_file);
+            _.map(errs, function(err){
+              var content = '';
+              content += err.key + '\n';
+              content += err.message + '\n';
+              content += '========================================================' + '\n';
+              wstream.write(content);
+            });
+            wstream.end();
+            wstream.on('finish', function(){
+              return resolve(values);
+            });
+          });
+       }
+       return values;
+      }).then(function(values){
+        return _.filter(values, function(value){
+          return _.isUndefined(value.err);
+        });
+      }).then(function(values){
         console.log('>> Total data:' + values.length);
         console.log(values);
         return _.assign(data, {
