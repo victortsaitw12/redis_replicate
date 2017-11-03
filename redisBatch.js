@@ -322,6 +322,7 @@ var main = function(config){
           }])(redis),
       },
       pattern: redis.pattern,
+      exect_keys: redis.exect_keys,
       output: redis.output
     };
     return _.assign(redis_data, {
@@ -351,6 +352,9 @@ var main = function(config){
       return data;
     });
   }).then(function(data){
+    if(data.exect_keys){
+      return _.set(data, 'keys', data.exect_keys);
+    }
     console.log('> FETCH KEYS');
     return Promise.promisify(scanKeys)(
       data.redises.nodes, 
