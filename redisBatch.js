@@ -294,14 +294,16 @@ var insertData = function(redis, data, log, callback){
     });
 };
 
-var main = function(){
+var main = function(config){
   return new Promise(function(resolve, reject){
-    fs.readFile(__dirname + '/redis.config', function (err, content){
+    fs.readFile(__dirname + '/' + config, function (err, content){
       if(err) return reject(err);
       return resolve(content.toString());
     });
   }).then(function(data){
     var redis = JSON.parse(data);
+    return redis;
+  }).then(function(redis){
     var redis_data = {
       redises: {
         nodes: _.map(redis.from_nodes, function(config){
@@ -408,9 +410,12 @@ var main = function(){
             content += ele + '\n';
           });
         } else if(_.isObjectLike(value.value)){
-          _.toPairs(value.value).map(function(p){
-            content += p + '\n';
+          var fields = _.keys(value.value);
+          fields.sort();
+          var obj_content = _.map(fields, function(field){
+            return field + ',' + value.value[field] + '\n';
           });
+          content += _.join(obj_content, '');
         } else if(_.isString(value.value)){
           content += value.value+ '\n';
         } else {
@@ -431,5 +436,5 @@ var main = function(){
     console.log('> BATCH ERROR:' + err);
     return process.exit(1);
   });
-}();
+}(process.argv[2]);
 
